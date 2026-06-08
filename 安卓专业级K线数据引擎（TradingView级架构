@@ -1,0 +1,897 @@
+下面我直接给你设计一个：
+
+# 安卓专业级K线数据引擎（TradingView级架构）
+
+目标：
+
+* 支持百万级K线
+* 支持Replay
+* 支持多周期
+* 支持指标缓存
+* 支持超流畅缩放拖动
+* 支持未来交易系统
+
+这不是“Demo”。
+
+而是：
+
+> 真正能作为专业交易软件核心的数据架构。
+
+---
+
+# 一、整体架构（核心）
+
+真正专业的数据引擎：
+
+```text
+CSV
+↓
+Importer
+↓
+Binary Market Data
+↓
+Memory Map
+↓
+Viewport
+↓
+Renderer
+↓
+Replay Engine
+↓
+Trading System
+```
+
+---
+
+# 二、项目目录结构（推荐）
+
+```text
+app/
+├── data/
+│   ├── importer/
+│   ├── storage/
+│   ├── buffer/
+│   └── repository/
+│
+├── chart/
+│   ├── viewport/
+│   ├── renderer/
+│   ├── gesture/
+│   └── overlay/
+│
+├── replay/
+│
+├── indicators/
+│
+├── trading/
+│
+└── ui/
+```
+
+---
+
+# 三、核心思想（非常重要）
+
+专业交易软件：
+
+## 不使用：
+
+```kotlin
+List<Candle>
+```
+
+因为：
+
+* 对象太多
+* GC严重
+* 内存分散
+* CPU缓存命中差
+
+---
+
+# 四、真正专业的数据结构
+
+使用：
+
+```text
+结构化数组（SOA）
+Structure Of Arrays
+```
+
+而不是：
+
+```text
+AOS
+Array Of Structures
+```
+
+---
+
+# 五、专业K线Buffer
+
+核心：
+
+```kotlin
+class CandleBuffer(
+    size: Int
+) {
+
+    val time = LongArray(size)
+
+    val open = FloatArray(size)
+
+    val high = FloatArray(size)
+
+    val low = FloatArray(size)
+
+    val close = FloatArray(size)
+
+    val volume = FloatArray(size)
+
+    var count = 0
+}
+```
+
+这是专业做法。
+
+---
+
+# 六、为什么这样快？
+
+因为：
+
+---
+
+## 普通对象
+
+```text
+Candle
+Candle
+Candle
+```
+
+内存分散。
+
+CPU cache miss很多。
+
+---
+
+## 数组结构
+
+```text
+close[0]
+close[1]
+close[2]
+```
+
+连续内存。
+
+CPU预读取极强。
+
+---
+
+# 七、CSV导入器（专业版）
+
+---
+
+# 不要：
+
+```kotlin
+readLines()
+split(",")
+```
+
+---
+
+# 正确：
+
+```kotlin
+BufferedReader
+```
+
+流式读取。
+
+---
+
+# 八、Importer结构
+
+```kotlin
+class CsvImporter {
+
+    fun import(
+        file: File
+    ): CandleBuffer {
+
+    }
+}
+```
+
+---
+
+# 九、高性能CSV解析（关键）
+
+不要：
+
+```kotlin
+line.split(",")
+```
+
+会创建：
+
+* String[]
+* substring
+* 大量对象
+
+---
+
+# 正确：
+
+自己扫描字符。
+
+例如：
+
+```kotlin
+private fun parseFloat(
+    chars: CharArray,
+    start: Int,
+    end: Int
+): Float
+```
+
+专业软件都这么干。
+
+---
+
+# 十、Binary Market Data（核心）
+
+CSV只导入一次。
+
+之后：
+
+```text
+binary格式
+```
+
+---
+
+# 十一、Binary文件结构
+
+建议：
+
+---
+
+# Header
+
+```text
+magic
+version
+count
+symbol
+timeframe
+```
+
+---
+
+# Data
+
+```text
+time
+open
+high
+low
+close
+volume
+```
+
+---
+
+# 十二、Binary格式示例
+
+```text
+[HEADER]
+
+4 bytes  MAGIC
+4 bytes  VERSION
+4 bytes  COUNT
+
+[DATA]
+
+8 bytes  TIME
+4 bytes  OPEN
+4 bytes  HIGH
+4 bytes  LOW
+4 bytes  CLOSE
+4 bytes  VOLUME
+```
+
+---
+
+# 十三、专业读取方式（重点）
+
+使用：
+
+```kotlin
+MappedByteBuffer
+```
+
+---
+
+# 十四、为什么MappedByteBuffer强？
+
+因为：
+
+---
+
+## 不需要：
+
+```text
+全部读入内存
+```
+
+---
+
+## 系统自动：
+
+```text
+按需分页
+```
+
+---
+
+## 优势
+
+✅ 秒开
+✅ 超低内存
+✅ 百万K线不卡
+✅ Replay极快
+
+---
+
+# 十五、K线文件读取器
+
+```kotlin
+class CandleFileReader(
+    file: File
+)
+```
+
+---
+
+# 十六、初始化
+
+```kotlin
+private val mappedBuffer =
+    RandomAccessFile(file, "r")
+        .channel
+        .map(
+            FileChannel.MapMode.READ_ONLY,
+            0,
+            file.length()
+        )
+```
+
+---
+
+# 十七、随机读取K线（核心）
+
+例如：
+
+```kotlin
+fun getClose(index: Int): Float
+```
+
+---
+
+# 偏移计算
+
+```text
+headerSize + index * candleSize
+```
+
+---
+
+# 十八、K线大小
+
+每根：
+
+```text
+8 + 4 + 4 + 4 + 4 + 4
+= 28 bytes
+```
+
+---
+
+# 十九、读取代码
+
+```kotlin
+fun getClose(index: Int): Float {
+
+    val offset =
+        HEADER_SIZE +
+        index * CANDLE_SIZE +
+        CLOSE_OFFSET
+
+    return mappedBuffer.getFloat(offset)
+}
+```
+
+这才是专业读取。
+
+---
+
+# 二十、Viewport系统（灵魂）
+
+TradingView最核心：
+
+> 永远只处理屏幕可见区域。
+
+---
+
+# 二十一、Viewport结构
+
+```kotlin
+data class Viewport(
+
+    var startIndex: Int,
+
+    var visibleCount: Int,
+
+    var candleWidth: Float
+)
+```
+
+---
+
+# 二十二、动态可见区域
+
+例如：
+
+```kotlin
+val endIndex =
+    startIndex + visibleCount
+```
+
+---
+
+# 二十三、Renderer真正绘制的数据
+
+只绘制：
+
+```text
+startIndex ~ endIndex
+```
+
+不是全部数据。
+
+---
+
+# 二十四、Replay Engine（关键）
+
+Replay本质：
+
+```kotlin
+currentIndex++
+```
+
+---
+
+# 二十五、Replay结构
+
+```kotlin
+class ReplayEngine {
+
+    var replayIndex = 500
+
+    fun next() {
+        replayIndex++
+    }
+}
+```
+
+---
+
+# 二十六、真正核心逻辑
+
+绘图时：
+
+```kotlin
+endIndex =
+    min(
+        viewportEnd,
+        replayIndex
+    )
+```
+
+这样：
+
+```text
+未来K线不可见
+```
+
+---
+
+# 二十七、指标系统（专业架构）
+
+不要：
+
+```text
+每帧计算EMA
+```
+
+---
+
+# 正确：
+
+提前缓存。
+
+---
+
+# 二十八、指标Buffer
+
+```kotlin
+class IndicatorBuffer(
+    size: Int
+) {
+
+    val ema20 = FloatArray(size)
+
+    val ema60 = FloatArray(size)
+
+    val ma200 = FloatArray(size)
+}
+```
+
+---
+
+# 二十九、EMA公式
+
+EMA_t = P_t \cdot k + EMA_{t-1} \cdot (1-k), \quad k = \frac{2}{n+1}
+
+---
+
+# 三十、初始化时计算一次
+
+例如：
+
+```kotlin
+fun calculateEMA()
+```
+
+然后：
+
+```text
+直接读取
+```
+
+即可。
+
+---
+
+# 三十一、真正专业的缓存系统
+
+建议：
+
+---
+
+# 一级缓存
+
+```text
+Viewport Cache
+```
+
+只缓存当前屏幕。
+
+---
+
+# 二级缓存
+
+```text
+Indicator Cache
+```
+
+指标结果缓存。
+
+---
+
+# 三级缓存
+
+```text
+File Page Cache
+```
+
+系统内存映射缓存。
+
+---
+
+# 三十二、未来交易系统兼容（提前设计）
+
+订单不要直接绑定UI。
+
+---
+
+# 正确：
+
+```kotlin
+class Position
+```
+
+独立。
+
+---
+
+# 三十三、订单结构
+
+```kotlin
+data class Position(
+
+    val id: Long,
+
+    val type: Int,
+
+    val entry: Float,
+
+    val sl: Float,
+
+    val tp: Float,
+
+    val volume: Float,
+
+    val openTime: Long
+)
+```
+
+---
+
+# 三十四、K线坐标系统（极重要）
+
+真正核心：
+
+---
+
+# X坐标
+
+```text
+index → x
+```
+
+```kotlin
+val x =
+(index - startIndex)
+    * candleWidth
+```
+
+---
+
+# Y坐标
+
+```text
+price → y
+```
+
+```kotlin
+val y =
+height -
+((price - minPrice)
+ / range) * height
+```
+
+---
+
+# 三十五、为什么TradingView流畅？
+
+因为：
+
+---
+
+# 1. 不创建对象
+
+---
+
+# 2. 不全量绘制
+
+---
+
+# 3. 不重复计算指标
+
+---
+
+# 4. 不重复解析CSV
+
+---
+
+# 5. GPU加速Canvas
+
+---
+
+# 三十六、安卓真正性能关键（重要）
+
+Compose里：
+
+不要：
+
+```kotlin
+mutableStateOf(List)
+```
+
+存几十万K线。
+
+---
+
+# 正确：
+
+```text
+只有Viewport状态是State
+```
+
+---
+
+# 三十七、正确状态结构
+
+```kotlin
+data class ChartState(
+
+    val startIndex: Int,
+
+    val candleWidth: Float,
+
+    val replayIndex: Int
+)
+```
+
+---
+
+# 三十八、为什么这样重要？
+
+因为：
+
+Compose：
+
+```text
+State变化
+→ 重组
+```
+
+如果：
+
+```text
+整个K线数组变化
+```
+
+会炸。
+
+---
+
+# 三十九、真正专业的渲染流程
+
+```text
+ChartState变化
+↓
+Viewport变化
+↓
+读取可见K线
+↓
+Canvas绘制
+```
+
+---
+
+# 四十、最终推荐的数据流
+
+```text
+CSV
+↓
+Importer
+↓
+Binary File
+↓
+MappedByteBuffer
+↓
+Viewport
+↓
+Indicator Cache
+↓
+Renderer
+↓
+Replay
+↓
+Trading
+```
+
+---
+
+# 四十一、你现在真正应该先写的模块（开发顺序）
+
+---
+
+# 第一阶段（必须）
+
+## 1. CandleBuffer
+
+---
+
+## 2. CSV Importer
+
+---
+
+## 3. Binary Writer
+
+---
+
+## 4. Binary Reader
+
+---
+
+# 第二阶段
+
+## 5. Viewport
+
+---
+
+## 6. Canvas Renderer
+
+---
+
+## 7. 缩放拖动
+
+---
+
+# 第三阶段
+
+## 8. Replay Engine
+
+---
+
+## 9. EMA缓存
+
+---
+
+## 10. 十字光标
+
+---
+
+# 第四阶段
+
+## 11. Trading System
+
+---
+
+## 12. Order Overlay
+
+---
+
+# 四十二、真正推荐的技术栈（最终）
+
+| 模块   | 技术               |
+| ---- | ---------------- |
+| UI   | Jetpack Compose  |
+| 绘图   | Canvas           |
+| 数据   | Binary           |
+| 文件读取 | MappedByteBuffer |
+| 架构   | MVVM             |
+| 状态   | StateFlow        |
+| 异步   | Coroutines       |
+| DB   | Room             |
+
+---
+
+# 四十三、最终你会得到什么
+
+最后你会拥有：
+
+✅ TradingView风格K线
+✅ 百万K线流畅缩放
+✅ 专业Replay
+✅ 多周期同步
+✅ 高性能指标
+✅ 专业交易系统
+✅ 安卓原生高性能
+
+---
+
+下一步最合理的是：
+
+> “开始写第一版 CandleFileReader + Binary格式”。
+
+因为：
+
+这是整个系统地基。
