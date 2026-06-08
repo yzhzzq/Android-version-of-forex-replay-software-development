@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- K线背景 -->
+    <path
+        android:fillColor="#26A69A"
+        android:pathData="M50,30 L50,70 M45,35 L55,35 M45,65 L55,65"/>
+    
+    <!-- 上涨K线 -->
+    <rect
+        android:x="42"
+        android:y="40"
+        android:width="16"
+        android:height="20"
+        android:fillColor="#26A69A"/>
+    <path
+        android:strokeColor="#26A69A"
+        android:strokeWidth="2"
+        android:pathData="M50,30 L50,40 M50,60 L50,70"/>
+    
+    <!-- 下跌K线 -->
+    <rect
+        android:x="62"
+        android:y="50"
+        android:width="16"
+        android:height="20"
+        android:fillColor="#EF5350"/>
+    <path
+        android:strokeColor="#EF5350"
+        android:strokeWidth="2"
+        android:pathData="M70,40 L70,50 M70,70 L70,80"/>
+    
+    <!-- 趋势线 -->
+    <path
+        android:strokeColor="#FFD700"
+        android:strokeWidth="2"
+        android:pathData="M20,80 L40,60 L60,70 L80,40"/>
+</vector>
